@@ -8,6 +8,7 @@ const port = process.env.PORT || 3000;
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 
+
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
@@ -84,12 +85,31 @@ async function run() {
       const userData = req.body;
       const query = { email: userData?.email };
       const userIsExist = await userCollection.findOne(query);
-      
+
       if (userIsExist) {
         return res.send({message:"user is allReady exist",insertedId: null})
       }
       const result = await userCollection.insertOne(userData);
       res.send(result)
+    })
+    app.put("/taskUpdate/:id", async (req, res) => {
+      const id = req.params.id;
+      const taskData = req.body;
+      const query = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          title: taskData?.title,
+          description:taskData?.description
+        }
+      }
+      const result = await taskCollection.updateOne(query, updatedDoc);
+      res.send(result)
+    })
+    app.get("/singleTask/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await taskCollection.findOne(query);
+      res.send(result);
     })
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
