@@ -80,6 +80,17 @@ async function run() {
       res.send(result);
     })
 
+    app.post("/users", async (req, res) => {
+      const userData = req.body;
+      const query = { email: userData?.email };
+      const userIsExist = await userCollection.findOne(query);
+      
+      if (userIsExist) {
+        return res.send({message:"user is allReady exist",insertedId: null})
+      }
+      const result = await userCollection.insertOne(userData);
+      res.send(result)
+    })
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
 
