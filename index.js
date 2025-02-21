@@ -1,12 +1,20 @@
 require('dotenv').config();
 const express = require("express");
+const http = require("http");
 const app = express();
 const cors = require("cors");
+const { Server } = require("socket.io");
 const port = process.env.PORT || 3000;
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 
-
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: ["http://localhost:5174", "http://localhost:5173"],
+    methods: ["GET", "POST", "PUT", "DELETE"],
+  },
+})
 app.use(cors());
 app.use(express.json());
 
@@ -25,25 +33,55 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
 
-    const taskCollection = client.db("taskMaster").collection('tasks');
-    const userCollection = client.db("taskMaster").collection("users");
+    const taskCollection = client.db("taskMasterDB").collection('tasks');
 
-      // Create a Task
-    app.post("/tasks", async (req, res) => {
-      try {
-        const task = req.body;
-        task.timestamp = new Date();
-        const result = await taskCollection.insertOne(task);
-        res.status(201).json(result);
-      } catch (error) {
-        res.status(500).json({ message: "Error creating task", error });
+    const userCollection = client.db("taskMasterDB").collection("users");
+
+
+    // monitoring MongoDB Change Stream 
+    const changeStream = taskCollection.watch();
+    changeStream.on("change", (change) => {
+      console.log("detect database changes:", change);
+
+      if (change.operationType === "insert") {
+        io.emit("task_added", change.fullDocument);
+      } else if (change.operationType === "update") {
+        io.emit("task_updated", { _id: change.documentKey._id, ...change.updateDescription.updatedFields });
+      } else if (change.operationType === "delete") {
+        io.emit("task_deleted", change.documentKey._id);
       }
     });
 
 
+    //  WebSocket event for task update
+    io.on("connection", (socket) => {
+      console.log("User connected:", socket.id);
+
+      socket.on("update_task", async ({ taskId, status }) => {
+        await taskCollection.updateOne(
+          { _id: new ObjectId(taskId) },
+          { $set: { status } }
+        );
+      });
+
+      socket.on("disconnect", () => {
+        console.log("user disconnected", socket.id);
+      });
+    });
+
+    app.post("/task", async (req, res) => {
+      const task = req.body;
+      const result = await taskCollection.insertOne(task);
+      res.send(result);
+    })
+
+    app.get("/allTask", async (req, res) => {
+      const result = await taskCollection.find().toArray();
+      res.send(result);
+    })
+
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
-
 
 
     // Send a ping to confirm a successful connection
@@ -61,6 +99,60 @@ app.get('/', (req, res) => {
   res.send('task master on fire')
 })
 
-app.listen(port, () => {
-  console.log("task master is running on port: ",port)
-})
+server.listen(port, () => {
+  console.log(`🚀 Server is running on port: ${port}`);
+});
+// app.listen(port, () => {
+//   console.log("task master is running on port: ", port)
+// })
+
+
+
+
+
+//  changeStream.on("change", (change) => {
+//       console.log("detect database changes:", change);
+
+//       if (change.operationType === "insert") {
+//         io.emit("task_added", change.fullDocument);
+//       } else if (change.operationType === "update") {
+//         io.emit("task_updated", { _id: change.documentKey._id, ...change.updateDescription.updatedFields });
+//       } else if (change.operationType === "delete") {
+//         io.emit("task_deleted", change.documentKey._id);
+//       }
+//     });
+
+
+
+//     //  WebSocket event for task update
+//     io.on("connection", (socket) => {
+//       console.log("User connected:", socket.id);
+
+//       socket.on("update_task", async ({ taskId, status }) => {
+//         await taskCollection.updateOne(
+//           { _id: new ObjectId(taskId) },
+//           { $set: { status } }
+//         );
+//       });
+
+//       socket.on("disconnect", () => {
+//         console.log("user disconnected", socket.id);
+//       });
+//     });
+
+//     // faced all task
+//     app.get("/allTask", async (req, res) => {
+//       const result = await taskCollection.find().toArray();
+//       res.send(result);
+//     });
+
+//   } catch (err) {
+//     console.error("server error:", err);
+//   }
+// }
+
+// run();
+
+// server.listen(5000, () => {
+//   console.log("server running: http://localhost:3000");
+// });
